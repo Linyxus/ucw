@@ -254,7 +254,6 @@ class TimerGrid(Container):
     def __init__(self, timer_manager: TimerManager, **kwargs):
         super().__init__(**kwargs)
         self.timer_manager = timer_manager
-        self.timer_cards = {}  # Dictionary to track existing timer cards by timer name
 
     def compose(self) -> ComposeResult:
         # This will be dynamically populated
@@ -262,38 +261,34 @@ class TimerGrid(Container):
 
     def update_timers(self) -> None:
         """Update the grid with current timers"""
-        timers = self.timer_manager.list_timers()
+        # Clear existing cards and rebuild layout for simplicity
+        self.remove_children()
 
+        timers = self.timer_manager.list_timers()
         if not timers:
-            # Clear everything if no timers
-            self.remove_children()
-            self.timer_cards.clear()
             self.mount(Static("No active timers. Try: a pasta 10m", classes="no-timers"))
             return
 
-        # Get current timer names
-        current_timer_names = {timer.name for timer in timers}
-        existing_timer_names = set(self.timer_cards.keys())
+        # Sort timers by urgency (finished first, then by remaining time)
+        sorted_timers = sorted(timers, key=lambda t: (not t.is_finished, t.remaining_seconds))
 
-        # Remove cards for timers that no longer exist
-        for timer_name in existing_timer_names - current_timer_names:
-            if timer_name in self.timer_cards:
-                self.timer_cards[timer_name].remove()
-                del self.timer_cards[timer_name]
+        # Create rows of 3 cards each
+        for i in range(0, len(sorted_timers), 3):
+            row_timers = sorted_timers[i:i+3]
+            row = Horizontal(classes="timer-row")
 
-        # Update existing cards and create new ones
-        for timer in timers:
-            if timer.name in self.timer_cards:
-                # Update existing card
-                self.timer_cards[timer.name].update_timer()
-            else:
-                # Create new card
-                if not self.timer_cards:  # First timer, remove "no timers" message
-                    self.remove_children()
+            # Mount the row to the grid first
+            self.mount(row)
 
+            # Add timer cards to the row
+            for timer in row_timers:
                 card = TimerCard(timer, classes="timer-card")
-                self.mount(card)
-                self.timer_cards[timer.name] = card
+                row.mount(card)
+
+            # Fill remaining slots in row with empty space if needed
+            while len(row_timers) < 3:
+                row.mount(Static("", classes="empty-slot"))
+                row_timers.append(None)  # Just to count slots filled
 
 
 
@@ -308,8 +303,8 @@ class CuisineClockApp(App):
 
     #main_area {
         height: 1fr;
-        margin: 1;
-        padding: 1;
+        margin: 1 1 0 1;
+        padding: 1 1 0 1;
     }
 
     #status_bar {
@@ -331,21 +326,21 @@ class CuisineClockApp(App):
     /* Timer Grid Styling */
     .timer-grid {
         layout: vertical;
-        align: center top;
+        align: left top;
     }
 
     .timer-row {
         layout: horizontal;
         height: auto;
-        margin: 1 0;
-        align: center top;
+        margin: 0 0 1 0;
+        align: left top;
     }
 
     /* Timer Card Base Styling */
     .timer-card {
-        width: 30;
-        height: 12;
-        margin: 0 1;
+        width: 22;
+        height: 9;
+        margin: 0 1 0 0;
         padding: 1;
         border: round;
         layout: vertical;
@@ -358,13 +353,14 @@ class CuisineClockApp(App):
         height: 1;
         margin: 0;
         padding: 0;
+        text-style: bold;
     }
 
 
     .timer-card .timer-time {
         text-align: center;
         width: 100%;
-        height: 6;
+        height: 4;
         margin: 1 0;
         padding: 0;
     }
@@ -450,9 +446,9 @@ class CuisineClockApp(App):
 
 
     .empty-slot {
-        width: 30;
-        height: 12;
-        margin: 0 1;
+        width: 22;
+        height: 9;
+        margin: 0 1 0 0;
     }
 
     .no-timers {
