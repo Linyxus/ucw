@@ -76,6 +76,7 @@ class KitchenTimer:
         else:
             return f"{minutes:02d}:{secs:02d}"
 
+
     def get_status_icon(self) -> str:
         if self.completed:
             return "✅"
@@ -253,6 +254,7 @@ class TimerGrid(Container):
     def __init__(self, timer_manager: TimerManager, **kwargs):
         super().__init__(**kwargs)
         self.timer_manager = timer_manager
+        self.timer_cards = {}  # Dictionary to track existing timer cards by timer name
 
     def compose(self) -> ComposeResult:
         # This will be dynamically populated
@@ -260,33 +262,38 @@ class TimerGrid(Container):
 
     def update_timers(self) -> None:
         """Update the grid with current timers"""
-        # Clear existing cards
-        self.remove_children()
-
         timers = self.timer_manager.list_timers()
+
         if not timers:
+            # Clear everything if no timers
+            self.remove_children()
+            self.timer_cards.clear()
             self.mount(Static("No active timers. Try: a pasta 10m", classes="no-timers"))
             return
 
-        # Sort timers by urgency
-        sorted_timers = sorted(timers, key=lambda t: (not t.is_finished, t.remaining_seconds))
+        # Get current timer names
+        current_timer_names = {timer.name for timer in timers}
+        existing_timer_names = set(self.timer_cards.keys())
 
-        # Create rows of 3 cards each
-        for i in range(0, len(sorted_timers), 3):
-            row_timers = sorted_timers[i:i+3]
-            row = Horizontal(classes="timer-row")
+        # Remove cards for timers that no longer exist
+        for timer_name in existing_timer_names - current_timer_names:
+            if timer_name in self.timer_cards:
+                self.timer_cards[timer_name].remove()
+                del self.timer_cards[timer_name]
 
-            # Mount the row to the grid first
-            self.mount(row)
+        # Update existing cards and create new ones
+        for timer in timers:
+            if timer.name in self.timer_cards:
+                # Update existing card
+                self.timer_cards[timer.name].update_timer()
+            else:
+                # Create new card
+                if not self.timer_cards:  # First timer, remove "no timers" message
+                    self.remove_children()
 
-            for timer in row_timers:
                 card = TimerCard(timer, classes="timer-card")
-                row.mount(card)
-
-            # Fill remaining slots in row with empty space if needed
-            while len(row_timers) < 3:
-                row.mount(Static("", classes="empty-slot"))
-                row_timers.append(None)  # Just to count slots filled
+                self.mount(card)
+                self.timer_cards[timer.name] = card
 
 
 
@@ -353,6 +360,7 @@ class CuisineClockApp(App):
         padding: 0;
     }
 
+
     .timer-card .timer-time {
         text-align: center;
         width: 100%;
@@ -383,6 +391,7 @@ class CuisineClockApp(App):
         color: ansi_bright_green;
     }
 
+
     .timer-card.timer-warning {
         border: solid yellow;
         background: $surface;
@@ -396,6 +405,7 @@ class CuisineClockApp(App):
         color: ansi_bright_yellow;
     }
 
+
     .timer-card.timer-urgent {
         border: solid red;
         background: $surface;
@@ -408,6 +418,7 @@ class CuisineClockApp(App):
     .timer-card.timer-urgent .timer-time {
         color: ansi_bright_red;
     }
+
 
     .timer-card.timer-finished {
         border: solid red;
@@ -423,6 +434,7 @@ class CuisineClockApp(App):
         text-style: bold;
     }
 
+
     .timer-card.timer-paused {
         border: solid blue;
         background: $surface;
@@ -435,6 +447,7 @@ class CuisineClockApp(App):
     .timer-card.timer-paused .timer-time {
         color: ansi_bright_blue;
     }
+
 
     .empty-slot {
         width: 30;
