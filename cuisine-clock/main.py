@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from textual.app import App, ComposeResult
-from textual.widgets import Static, Input, Label
+from textual.widgets import Static, Input, Label, Digits
 from textual.containers import Container, Horizontal, Vertical, Grid
 from textual.binding import Binding
 
@@ -53,6 +53,19 @@ class KitchenTimer:
         seconds = self.remaining_seconds
         if seconds == 0:
             return "DONE!"
+
+        hours = seconds // 3600
+        minutes = (seconds % 3600) // 60
+        secs = seconds % 60
+
+        if hours > 0:
+            return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+        else:
+            return f"{minutes:02d}:{secs:02d}"
+
+    def get_digits_time(self) -> str:
+        """Get time in format suitable for Digits widget (always numeric)"""
+        seconds = self.remaining_seconds
 
         hours = seconds // 3600
         minutes = (seconds % 3600) // 60
@@ -196,7 +209,7 @@ class TimerCard(Container):
 
     def compose(self) -> ComposeResult:
         yield Label(self.timer.name, classes="timer-name")
-        yield Label(self.timer.format_time(), classes="timer-time")
+        yield Digits(self.timer.get_digits_time(), classes="timer-time", id=f"timer-digits-{self.timer.name}")
         yield Label(self.timer.get_status_icon(), classes="timer-icon")
 
     def get_state_class(self) -> str:
@@ -224,13 +237,13 @@ class TimerCard(Container):
         # Add current state class
         self.add_class(self.get_state_class())
 
-        # Update labels
+        # Update labels and digits
         name_label = self.query_one(".timer-name", Label)
-        time_label = self.query_one(".timer-time", Label)
+        time_digits = self.query_one(".timer-time", Digits)
         icon_label = self.query_one(".timer-icon", Label)
 
         name_label.update(self.timer.name)
-        time_label.update(self.timer.format_time())
+        time_digits.update(self.timer.get_digits_time())
         icon_label.update(self.timer.get_status_icon())
 
 
@@ -323,8 +336,8 @@ class CuisineClockApp(App):
 
     /* Timer Card Base Styling */
     .timer-card {
-        width: 24;
-        height: 8;
+        width: 30;
+        height: 12;
         margin: 0 1;
         padding: 1;
         border: round;
@@ -343,10 +356,9 @@ class CuisineClockApp(App):
     .timer-card .timer-time {
         text-align: center;
         width: 100%;
-        height: 1;
+        height: 6;
         margin: 1 0;
         padding: 0;
-        text-style: bold;
     }
 
     .timer-card .timer-icon {
@@ -425,8 +437,8 @@ class CuisineClockApp(App):
     }
 
     .empty-slot {
-        width: 24;
-        height: 8;
+        width: 30;
+        height: 12;
         margin: 0 1;
     }
 
