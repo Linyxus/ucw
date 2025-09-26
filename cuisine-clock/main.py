@@ -64,7 +64,7 @@ class KitchenTimer:
             return f"{minutes:02d}:{secs:02d}"
 
     def get_digits_time(self) -> str:
-        """Get time in format suitable for Digits widget (always numeric)"""
+        """Get time in format suitable for Digits widget (compact format)"""
         seconds = self.remaining_seconds
 
         hours = seconds // 3600
@@ -72,7 +72,8 @@ class KitchenTimer:
         secs = seconds % 60
 
         if hours > 0:
-            return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+            # Use compact format for hours: "2h15m" instead of "02:15:30"
+            return f"{hours}h{minutes:02d}m"
         else:
             return f"{minutes:02d}:{secs:02d}"
 
@@ -249,7 +250,7 @@ class TimerCard(Container):
 
 
 class TimerGrid(Container):
-    """Container to display timer cards in a 3-column grid"""
+    """Container to display timer cards in a responsive grid that adapts to terminal width"""
 
     def __init__(self, timer_manager: TimerManager, **kwargs):
         super().__init__(**kwargs)
@@ -269,12 +270,19 @@ class TimerGrid(Container):
             self.mount(Static("No active timers. Try: a pasta 10m", classes="no-timers"))
             return
 
+        # Calculate how many cards can fit per row based on available width
+        # Each card is 22 wide + 1 margin = 23 units per card
+        # But last card in row doesn't need right margin, so calculation is:
+        # width = (cards_per_row * 23) - 1
+        available_width = self.size.width - 4  # Account for container padding
+        cards_per_row = max(1, (available_width + 1) // 23)  # At least 1 card per row
+
         # Sort timers by urgency (finished first, then by remaining time)
         sorted_timers = sorted(timers, key=lambda t: (not t.is_finished, t.remaining_seconds))
 
-        # Create rows of 3 cards each
-        for i in range(0, len(sorted_timers), 3):
-            row_timers = sorted_timers[i:i+3]
+        # Create rows with dynamic number of cards
+        for i in range(0, len(sorted_timers), cards_per_row):
+            row_timers = sorted_timers[i:i+cards_per_row]
             row = Horizontal(classes="timer-row")
 
             # Mount the row to the grid first
@@ -284,11 +292,6 @@ class TimerGrid(Container):
             for timer in row_timers:
                 card = TimerCard(timer, classes="timer-card")
                 row.mount(card)
-
-            # Fill remaining slots in row with empty space if needed
-            while len(row_timers) < 3:
-                row.mount(Static("", classes="empty-slot"))
-                row_timers.append(None)  # Just to count slots filled
 
 
 
@@ -323,7 +326,7 @@ class CuisineClockApp(App):
         background: $surface;
     }
 
-    /* Timer Grid Styling */
+    /* Timer Grid Styling - Responsive Layout */
     .timer-grid {
         layout: vertical;
         align: left top;
