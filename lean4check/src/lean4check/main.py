@@ -94,7 +94,7 @@ class Lean4Project:
         )
 
     def render_result(self, result: CLIResult, filename: str) -> str:
-        if result.stderr:
+        if result.stderr and not result.stdout:
             builder = []
             builder.append(f"I failed to check the file due to errors in its dependencies. Errors are as follows:\n")
             builder.append(result.stderr)
@@ -122,6 +122,10 @@ class Lean4Project:
             builder.append(f"I found the following issues in {filename}:\n")
             for diag in diagnostics:
                 builder.append(self.render_message(diag))
+
+            if result.stderr.strip():
+                builder.append("\nAdditionally, there were some warnings/errors from lake:\n")
+                builder.append(result.stderr)
             return "\n".join(builder)
         except json.JSONDecodeError:
             return f"I failed to parse output from lean as JSON. The raw output was:\n{result.stdout}"
