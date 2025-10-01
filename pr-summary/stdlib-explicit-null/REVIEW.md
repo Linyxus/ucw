@@ -3,9 +3,9 @@
 ## Progress Overview
 
 **Total Files**: 108
-**Reviewed**: 8
+**Reviewed**: 9
 **In Progress**: 2
-**Remaining**: 100
+**Remaining**: 99
 
 Last Updated: 2025-10-01
 
@@ -1351,13 +1351,116 @@ Everything looks good to me.
 
 ---
 
-#### [ ] library/src/scala/collection/mutable/CollisionProofHashMap.scala
+#### [x] library/src/scala/collection/mutable/CollisionProofHashMap.scala
 **Changes**: +104/-93 (197 total)
-**Status**: TODO
-**Reviewer**: _Unassigned_
+**Status**: REVIEWED
+**Reviewer**: @CC5
 **Notes**: **LARGE FILE** - Complex hash table with collision handling
 
 **Review**:
+
+**Array and Collection Types** ✅
+- **L13-17**: `Array[Node]` → `Array[Node | Null]` - Correct per Guideline #6 (reference array elements may be null)
+- **L99-103**: `new Array[Node | Null](newlen)` - Consistent with field type
+- **L88-92**: Iterator `node: Node | Null` - Correct for traversal state
+
+**Return Type Annotations** ✅
+- **L24-28**: `findNode` returns `Node | Null` - Returns null when not found (L31)
+- **L446-450, L452-456**: `fromNodes` and nested `f` return `RBNode | Null` - Returns null for empty (L457)
+- **L500-504**: `RBNode.getNode` returns `RBNode | Null` - Returns null if not found (L507)
+- **L522-526**: `successor` returns `RBNode | Null` - Comment confirms returns null for maximum node
+- **L556-560**: `LLNode.getNode` returns `RBNode | Null` - Returns null if not found (L562)
+
+**Node Structure Nullability** ✅
+- **L485-497**: `RBNode` fields (`left`, `right`, `parent`) made nullable with `@stableNull` - Correct for tree structure
+- **L546-550**: `LLNode.next` made nullable with `@stableNull` - Correct for linked list termination
+- **L134-140**: `isRed`/`isBlack` accept `RBNode | Null` - Explicitly handle null nodes (empty subtrees)
+
+**Local Variables** ✅
+- **L55-59**: `old: LLNode | Null` - Checked on L60 `if(old eq null)`
+- **L64-70**: `prev: LLNode | Null = null`, `n: LLNode | Null` - Loop checks `while((n ne null))` on L71
+- **L77-81**: `n: LLNode | Null = old.next` - Checked in while loop L82
+- **L123-127**: `n: LLNode | Null` - Updated to next (can be null at list end)
+- **L240-246**: `x: RBNode | Null`, `xParent: RBNode | Null` - Delete operation variables, can be null
+- **L534-539**: `nextNode: RBNode | Null` - Iterator state, null when done
+
+**Pattern Matching** ✅
+- **L107-117**: Added `case null =>` to `splitBucket` - Handles empty bucket
+- **L147-151**: `insert` checks `if(tree eq null)` on L152
+
+**Safe .nn Usages in Red-Black Tree Fixup** ✅
+- **L158-234**: Multiple `.nn` on `z.parent`, `z.parent.nn.parent`, `y.nn` inside `while (isRed(z.parent))` loop
+  - `isRed(z.parent)` guarantees `z.parent ne null` (isRed returns true only for non-null red nodes)
+  - If z.parent is red, it cannot be root (root is always black), so `z.parent.parent` exists
+  - `isRed(y)` check on L165/L203 guarantees y is non-null before `y.nn` access
+  - All usages protected by loop condition or explicit checks
+
+**Safe .nn Usages in fixAfterDelete** ✅
+- **L294-410**: Multiple `.nn` on `xParent`, `w`, and children
+  - L294: Loop `while ((x ne root) && isBlack(x))` ensures x is not root
+  - If x is not root, xParent must be non-null
+  - Comments on L302, L360: `// assert(w ne null)` document RB tree invariants
+  - Complex rebalancing operations rely on structural invariants maintained by algorithm
+  - Derived from mutable.RedBlackTree (L132 comment), known-correct implementation
+
+**Safe .nn Usages in Rotations** ✅
+- **L424-428**: `x.right.nn` in rotateLeft - Called only when x has right child (caller responsibility)
+- **L434-439**: `x.left.nn` in rotateRight - Called only when x has left child (caller responsibility)
+
+**Questionable Patterns** ⚠️
+
+- **L35-39, L46-50**: `Some[V] | Null` return type
+  - Semantically unusual - `Some[V]` should never be null by design
+  - Appears to use null as optimization instead of None when `getOld = false`
+  - Not idiomatic but if original code did this, at least type now reflects it
+  - Consider refactoring to return `Option[V]` instead
+
+**CRITICAL BUGS FOUND** 🔴
+
+- **L250-254**: `transplant(root, z, z.right.nn)` - **INCORRECT**
+  - Context: `if (z.left eq null)` branch - z could be a LEAF NODE with both children null
+  - `transplant` signature in RedBlackTree.scala:507 accepts `from: Node[A, B] | Null`
+  - Should be: `transplant(root, z, z.right)` WITHOUT `.nn`
+  - Current code will **CRASH** on leaf node deletion
+  - ❌ **MUST FIX**
+
+- **L257-265**: `transplant(root, y, y.right.nn)` - **INCORRECT**
+  - Context: `else if (z.right eq null)` branch, but y might still have null right child
+  - `transplant` accepts nullable, should be: `transplant(root, y, y.right)` WITHOUT `.nn`
+  - Current code will **CRASH** if y.right is null
+  - ❌ **MUST FIX**
+
+- **L267-271, L275-279**: `y.right.nn.parent = y`, `y.left.nn.parent = y`
+  - These execute AFTER transplant operations
+  - At L264, y.right was just set to z.right (via `y.right = z.right`)
+  - At L275, y.left was just set to z.left (via `y.left = z.left`)
+  - If z's children were null, these will CRASH
+  - ❌ **MUST ADD** null checks: `if (y.right ne null) y.right.parent = y`
+
+- **L413-417**: `xParent = x.nn.parent`
+  - At end of fixAfterDelete loop
+  - Loop condition: `while ((x ne root) && isBlack(x))`
+  - Since `isBlack(null) == true`, x CAN be null when loop continues
+  - Last statement in loop unconditionally accesses `x.nn.parent`
+  - ❌ **LIKELY BUG**: Should be `if (x ne null) xParent = x.parent`
+
+**Minor Items** ✅
+- **L474-478**: `(ordering)` → `(using ordering)` - Scala 3 syntax update, not nullability-related
+- **L463-467**: Added `if(right ne null)` before `right.parent = n` - Good defensive check
+- **L4-6, L567-569**: Added blank lines - Formatting only
+
+**Summary**:
+- **40+ correct nullable type annotations** for arrays, return types, fields, and local variables
+- **@stableNull annotations** properly used on tree node pointers
+- **Most .nn usages are safe** - protected by RB tree invariants and explicit null checks
+- **4 CRITICAL BUGS** will cause runtime crashes - found by checking transplant signature in RedBlackTree.scala:
+  1. **L253**: `transplant(root, z, z.right.nn)` - Remove `.nn`, transplant accepts null
+  2. **L264**: `transplant(root, y, y.right.nn)` - Remove `.nn`, transplant accepts null
+  3. **L270, L278**: `y.right.nn.parent = y` and `y.left.nn.parent = y` - Add null checks before access
+  4. **L416**: `x.nn.parent` when x can be null - Likely needs null guard
+- **1 design concern**: `Some[V] | Null` return type is not idiomatic Scala
+
+**Recommendation**: ❌ **BLOCKING - MUST NOT MERGE** - Contains confirmed bugs that will crash on leaf node deletion and in fixAfterDelete. The `.nn` calls at L253 and L264 are definitively wrong since transplant's signature explicitly accepts nullable parameters.
 
 
 ---
