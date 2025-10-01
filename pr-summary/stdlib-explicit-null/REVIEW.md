@@ -3,9 +3,9 @@
 ## Progress Overview
 
 **Total Files**: 108
-**Reviewed**: 1
-**In Progress**: 0
-**Remaining**: 107
+**Reviewed**: 6
+**In Progress**: 1
+**Remaining**: 102
 
 Last Updated: 2025-10-01
 
@@ -31,13 +31,54 @@ Last Updated: 2025-10-01
 
 ### Core Library (scala.*)
 
-#### [ ] library/src/scala/Enumeration.scala
+#### [x] library/src/scala/Enumeration.scala
 **Changes**: +8/-8 (16 total)
-**Status**: TODO
-**Reviewer**: _Unassigned_
+**Status**: REVIEWED
+**Reviewer**: @CC2
 **Notes**:
 
 **Review**:
+- **L5→7**: `vset: ValueSet = null` → `vset: ValueSet | Null = null` ✅
+  - Mutable field used as lazy cache, null indicates "not initialized"
+  - Follows Guideline #4 (nullable fields for uninitialized state)
+  - Works with volatile flag `vsetDefined` for thread-safe lazy initialization
+
+- **L16→18**: `vset` → `vset.nn` ✅
+  - Safe usage: code initializes `vset` before this return statement
+  - Protected by double-check pattern with volatile `vsetDefined` flag
+  - Happens-before guarantees ensure visibility across threads
+
+- **L27→29**: `nextNameOrNull =` → `nextNameOrNull: String | Null =` ✅
+  - Returns null explicitly on L31: `else null`
+  - Follows Guideline #3 (add `| Null` when returning null)
+  - Method name clearly indicates nullable return
+
+- **L38→40**: `Value(name: String)` → `Value(name: String | Null)` ✅
+  - Widens parameter type from non-nullable to nullable
+  - Binary compatible (callers can still pass non-null strings)
+  - Necessary to accept output from `nextNameOrNull`
+
+- **L49→51**: `Value(i: Int, name: String)` → `Value(i: Int, name: String | Null)` ✅
+  - Same as L38→40, widens parameter type
+  - Binary compatible
+
+- **L56→58**: `getFields(clazz: Class[_], ...)` → `getFields(clazz: Class[_] | Null, ...)` ✅
+  - Private recursive method using reflection
+  - Explicitly checks `if (clazz == null)` on L60
+  - Follows Guideline #3 (add `| Null` when code checks for null)
+
+- **L67→69**: `Val(i: Int, name: String)` → `Val(i: Int, name: String | Null)` ✅
+  - Primary constructor parameter widened to accept nullable
+  - Required because L71 calls it with `nextNameOrNull` result
+  - Binary compatible
+
+- **L73→75**: `this(name: String)` → `this(name: String | Null)` ✅
+  - Auxiliary constructor, consistent with primary constructor
+  - Binary compatible type widening
+
+**Summary**: All 8 changes are correct and follow migration guidelines. No safety issues. The `.nn` usage is properly protected by the volatile flag pattern. Parameter type widening maintains binary compatibility.
+
+Everything looks good to me.
 
 
 ---
@@ -92,13 +133,19 @@ Last Updated: 2025-10-01
 
 ---
 
-#### [ ] library/src/scala/MatchError.scala
+#### [x] library/src/scala/MatchError.scala
 **Changes**: +2/-2 (4 total)
-**Status**: TODO
-**Reviewer**: _Unassigned_
+**Status**: REVIEWED
+**Reviewer**: Claude
 **Notes**:
 
 **Review**:
+- L7: Added explicit `: String` type annotation to `objString` lazy val ✅
+- L18: Added explicit `: String` return type to `getMessage()` override ✅
+- Both changes are straightforward type annotations with no safety issues
+- Code properly handles null on L10 by converting to string "null"
+- No `.nn`, `| Null`, or API changes
+Everything looks good to me.
 
 
 ---
@@ -114,37 +161,81 @@ Last Updated: 2025-10-01
 
 ---
 
-#### [ ] library/src/scala/Specializable.scala
+#### [x] library/src/scala/Specializable.scala
 **Changes**: +11/-11 (22 total)
-**Status**: TODO
-**Reviewer**: _Unassigned_
+**Status**: REVIEWED
+**Reviewer**: CC1
 **Notes**:
 
 **Review**:
+
+- **L5→7: POTENTIAL BINARY COMPATIBILITY ISSUE** - Removed `T >: Null` lower bound from `Group[T]`
+
+  - ✅ Follows **Guideline #5** (discourage `T >: Null`)
+  - ⚠️ **Public API change**: This changes the signature of a public class. According to **Guideline #1**, we must verify binary compatibility:
+    - Does removing the lower bound change the JVM signature?
+    - Can existing compiled code that uses `Group` still link?
+    - **Recommendation**: Verify with MiMa or similar tool before merging
+  - The change itself is semantically correct - removes forced nullability
+
+- **L11→19: Primitives field initialization** - Added explicit `asInstanceOf` cast
+  - OLD: `final val Primitives: Group[...] = null`
+  - NEW: `final val Primitives: Group[...] = null.asInstanceOf[Group[...]]`
+  - ✅ Correct pattern - since `Group[T]` no longer has `>: Null`, direct assignment fails
+  - ✅ Safe usage - these are sentinel/marker values for type-level specialization groups
+  - ✅ Values are never dereferenced at runtime (type markers only)
+  - Follows **Guideline #4** (null for sentinel values, use asInstanceOf)
+
+- **L12→20, L13→21, L14→22, L15→23, L16→24, L17→25**: Same pattern for Everything, Bits32AndUp, Integral, AllNumeric, BestOfBreed, Unit ✅
+  - All consistent with same safe pattern
+
+- **L29→33, L30→34, L31→35**: Same pattern for Arg, Args, Return ✅
+  - Consistent with above
+
+- **No `.nn` usages**: ✅ Correct - values are sentinels, never dereferenced
+
+- **No `| Null` additions needed**: ✅ Correct - the Group instances themselves are nullable (via asInstanceOf), not their type parameters
+
+**Summary**:
+- **1 Potential Issue**: Binary compatibility of removing `T >: Null` needs verification
+- **11 Correct Changes**: All `null.asInstanceOf[Group[...]]` patterns are safe and appropriate for sentinel values
+- Pattern follows guidelines correctly for removing `T >: Null` lower bounds
+
+**Verdict**: Changes are semantically correct and follow migration guidelines. Only concern is binary compatibility verification needed before merge.
 
 
 ---
 
-#### [ ] library/src/scala/Symbol.scala
+#### [x] library/src/scala/Symbol.scala
 **Changes**: +2/-2 (4 total)
-**Status**: TODO
-**Reviewer**: _Unassigned_
+**Status**: REVIEWED
+**Reviewer**: Claude
 **Notes**:
 
 **Review**:
+- L5→7: Removed `V >: Null` lower bound from UniquenessCache ✅
+  - Follows Guideline #5 (discourage `T >: Null`)
+- L16→18: Added `| Null` to `cached()` return type ✅
+  - Correctly reflects that `WeakHashMap.get()` can return null
+  - Since V no longer has `>: Null`, must explicitly add `| Null`
+  - Outer `apply()` returns non-null `V`, handles null internally
+Everything looks good to me.
 
 
 ---
 
 ### Collections - Core (scala.collection.*)
 
-#### [ ] library/src/scala/collection/ArrayOps.scala
+#### [x] library/src/scala/collection/ArrayOps.scala
 **Changes**: +1/-1 (2 total)
-**Status**: TODO
-**Reviewer**: _Unassigned_
+**Status**: REVIEWED
+**Reviewer**: Claude
 **Notes**:
 
 **Review**:
+- L5→7: Removed trailing whitespace after `AnyRef` in type parameter
+- Whitespace-only change, no semantic or safety implications
+Everything looks good to me.
 
 
 ---
@@ -160,13 +251,21 @@ Last Updated: 2025-10-01
 
 ---
 
-#### [ ] library/src/scala/collection/LazyZipOps.scala
+#### [x] library/src/scala/collection/LazyZipOps.scala
 **Changes**: +3/-3 (6 total)
-**Status**: TODO
-**Reviewer**: _Unassigned_
+**Status**: REVIEWED
+**Reviewer**: Claude
 **Notes**:
 
 **Review**:
+- L5→7: Added `| Null` to `_current` field for 2-tuple iterator ✅
+- L16→18: Added `| Null` to `_current` field for 3-tuple iterator ✅
+- L27→29: Added `| Null` to `_current` field for 4-tuple iterator ✅
+- All three mutable fields are initialized with `= _` (null)
+- Code explicitly checks `(_current eq null)` in the `current` method
+- Follows Guideline #4 (nullable fields for "not initialized" state)
+- Follows Guideline #3 (add `| Null` when code handles null)
+Everything looks good to me.
 
 
 ---
@@ -193,13 +292,26 @@ Last Updated: 2025-10-01
 
 ---
 
-#### [ ] library/src/scala/collection/StringOps.scala
+#### [x] library/src/scala/collection/StringOps.scala
 **Changes**: +2/-2 (4 total)
-**Status**: TODO
-**Reviewer**: _Unassigned_
+**Status**: REVIEWED
+**Reviewer**: CC1
 **Notes**:
 
 **Review**:
+- **L4-8: stripPrefix return type** - Added explicit `: String` return type annotation ✅
+  - Method returns `String` in both branches (substring or unchanged string)
+  - No null handling involved
+  - Pure type annotation, no behavioral change
+
+- **L15-19: stripSuffix return type** - Added explicit `: String` return type annotation ✅
+  - Method returns `String` in both branches (substring or unchanged string)
+  - No null handling involved
+  - Pure type annotation, no behavioral change
+
+**Analysis**: Both changes are trivial type annotations making previously inferred return types explicit. No safety issues, no `.nn`, no `| Null`, no API changes beyond adding explicit types.
+
+Everything looks good to me.
 
 
 ---
