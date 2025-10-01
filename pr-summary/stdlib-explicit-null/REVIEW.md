@@ -3,9 +3,9 @@
 ## Progress Overview
 
 **Total Files**: 108
-**Reviewed**: 0
+**Reviewed**: 1
 **In Progress**: 0
-**Remaining**: 108
+**Remaining**: 107
 
 Last Updated: 2025-10-01
 
@@ -13,7 +13,7 @@ Last Updated: 2025-10-01
 
 ## Review Status by Module
 
-- **Core Library** (9/9 files remaining)
+- **Core Library** (8/9 files remaining - IArray.scala reviewed)
 - **Collections** (53/53 files remaining)
 - **Concurrent** (5/5 files remaining)
 - **IO** (3/3 files remaining)
@@ -42,13 +42,52 @@ Last Updated: 2025-10-01
 
 ---
 
-#### [ ] library/src/scala/IArray.scala
+#### [x] library/src/scala/IArray.scala
 **Changes**: +16/-7 (23 total)
-**Status**: TODO
-**Reviewer**: _Unassigned_
-**Notes**:
+**Status**: REVIEWED
+**Reviewer**: Claude
+**Notes**: Array handling, converter function with unsafeNulls import
 
 **Review**:
+
+- **L32: CRITICAL ISSUE** - `import scala.language.unsafeNulls // TODO!!! only for stdliib migration!`
+
+  This violates **Guideline #7** which explicitly states to avoid `language.unsafeNull`. The comment acknowledges this is temporary ("TODO!!!"), but this should be resolved before merging. The import appears to be needed to make the cast operations type-check, but we should investigate alternatives:
+  - Can we use explicit `| Null` annotations instead?
+  - Is there a way to scope this import more narrowly?
+  - **Recommendation**: Remove this import and fix the code properly.
+
+- **L33: Type parameter change** - `T <: AnyRef` → `T <: AnyRef | Null`
+
+  **Concern about binary compatibility**: This changes the signature of a public implicit conversion. According to **Guideline #1**, no changes to public definitions should be made. While this widens the type bound (making it more permissive), we need to verify this doesn't break binary compatibility:
+  - Does this change the JVM signature?
+  - Can existing compiled code that calls `wrapRefArray[String]` still link?
+  - **Recommendation**: Verify binary compatibility with MiMa or similar tool.
+
+- **L46-47: Complex cast chain** - `ArraySeq.ofRef[AnyRef](arr.asInstanceOf[Array[AnyRef]]).asInstanceOf[ArraySeq.ofRef[T]]`
+
+  The cast logic changed from:
+  - OLD: `ArraySeq.ofRef(arr.asInstanceOf[Array[T]])`
+  - NEW: `ArraySeq.ofRef[AnyRef](arr.asInstanceOf[Array[AnyRef]]).asInstanceOf[ArraySeq.ofRef[T]]`
+
+  **Analysis**: This appears to be working around type inference issues with the nullable type parameter. The cast to `Array[AnyRef]` (without `| Null`) then back to `ArraySeq.ofRef[T]` looks suspicious:
+  - If `T` can be `Null`, why are we casting through non-nullable `Array[AnyRef]`?
+  - This might be hiding a type safety issue
+  - **Recommendation**: Clarify the reasoning or refactor to avoid double casting.
+
+- **L46: Array type change** - `ArraySeq.empty[AnyRef]` → `ArraySeq.empty[AnyRef | Null]`
+
+  This is consistent with the type parameter change and follows **Guideline #6** about Array[T] nullability for reference types. ✅
+
+- **L10-20: mapNull function documentation**
+
+  Good addition of explanatory comments. The function intentionally violates type safety for backward compatibility, which is well-documented. This aligns with **Guideline #3 exception** for converters/wrappers. ✅
+
+**Summary**:
+- **1 Critical Issue**: unsafeNulls import must be removed
+- **1 Major Concern**: Binary compatibility needs verification
+- **1 Code Smell**: Complex double-casting logic should be clarified
+- **2 Good Changes**: Documentation and Array type consistency
 
 
 ---

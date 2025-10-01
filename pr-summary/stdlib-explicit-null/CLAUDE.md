@@ -182,3 +182,9 @@ Check `REVIEW.md` for:
 ---
 
 **Remember**: This migration affects the **entire Scala 3 ecosystem**. A single incorrect `.nn` could cause production crashes. Take your time and be thorough! 🔍
+
+Workflow for reviewing a file:
+- Pick a file to review. Update REVIEW.md to change the TODO status and assignee immediately, since there are multiple concurrent reviewers working.
+- Perform your review. This directory already contains the full source file with annotated changes. Make use of the context.
+- When you finish your review, update REVIEW.md to leave your reviews and update the TODO status.
+
