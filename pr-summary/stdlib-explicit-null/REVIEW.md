@@ -3,9 +3,9 @@
 ## Progress Overview
 
 **Total Files**: 108
-**Reviewed**: 6
-**In Progress**: 1
-**Remaining**: 102
+**Reviewed**: 8
+**In Progress**: 2
+**Remaining**: 100
 
 Last Updated: 2025-10-01
 
@@ -150,10 +150,10 @@ Everything looks good to me.
 
 ---
 
-#### [ ] library/src/scala/Predef.scala
+#### [x] library/src/scala/Predef.scala
 **Changes**: +26/-21 (47 total)
-**Status**: TODO
-**Reviewer**: _Unassigned_
+**Status**: IN PROGRESS
+**Reviewer**: @CC3
 **Notes**: High impact file - careful review needed
 
 **Review**:
@@ -270,13 +270,30 @@ Everything looks good to me.
 
 ---
 
-#### [ ] library/src/scala/collection/SeqView.scala
+#### [x] library/src/scala/collection/SeqView.scala
 **Changes**: +2/-3 (5 total)
-**Status**: TODO
-**Reviewer**: _Unassigned_
+**Status**: REVIEWED
+**Reviewer**: @CC2
 **Notes**:
 
 **Review**:
+- **L5→7**: `underlying = null` → `underlying = nullForGC[SomeSeqOps[A]]` ✅
+  - Uses `nullForGC[T]` helper which is `null.asInstanceOf[T]` (defined in Predef)
+  - Comment confirms: "allow GC of unneeded reference"
+  - Follows Guideline #4 (null for GC cleanup, use asInstanceOf at specific site)
+  - Field type remains non-nullable (no `| Null` needed)
+  - This is the recommended pattern for GC-only null assignments
+
+- **L14→17**: Removed intermediate variable `orig` ✅
+  - OLD: `val orig: SomeSeqOps[A]^{this} = underlying; if (evaluated) _sorted else orig`
+  - NEW: `if (evaluated) _sorted else underlying`
+  - Pure code simplification, no semantic change
+  - No safety implications - both versions equivalent
+  - No `.nn` needed because `underlying` is accessed before GC cleanup
+
+**Summary**: Both changes follow migration guidelines correctly. The `nullForGC` pattern is exactly what's recommended for GC-only null assignments. Code simplification is safe.
+
+Everything looks good to me.
 
 
 ---
@@ -316,13 +333,64 @@ Everything looks good to me.
 
 ---
 
-#### [ ] library/src/scala/collection/View.scala
+#### [x] library/src/scala/collection/View.scala
 **Changes**: +8/-6 (14 total)
-**Status**: TODO
-**Reviewer**: _Unassigned_
+**Status**: REVIEWED
+**Reviewer**: CC1
 **Notes**:
 
 **Review**:
+
+- **L5→8: TakeRightIterator buf field** - Added `@annotation.stableNull` and `| Null` type ✅
+  - OLD: `private[this] var buf: ArrayBuffer[AnyRef] = _`
+  - NEW: `@annotation.stableNull private[this] var buf: ArrayBuffer[AnyRef] | Null = _`
+  - Field initialized with `= _` (null), used as "not initialized" marker
+  - Explicitly checked on L10: `if(buf eq null)`
+  - `@stableNull` enables flow typing for this `private[this]` stable field
+  - Follows **Guideline #4** (mutable fields with null state + @stableNull annotation)
+  - Follows **Guideline #3** (add `| Null` when code checks null)
+
+- **L17→19: GC cleanup** - Added explicit cast for null assignment ✅
+  - OLD: `underlying = null`
+  - NEW: `underlying = null.asInstanceOf[Iterator[A]] // allow GC of underlying iterator`
+  - Comment confirms this is for GC cleanup (freeing memory after iteration)
+  - Field `underlying` is non-nullable, so asInstanceOf needed
+  - Follows **Guideline #4** (null for GC cleanup, use asInstanceOf)
+
+- **L28→30: buf.nn access in TakeRightIterator.next** ✅
+  - OLD: `val x = buf(pos).asInstanceOf[A]`
+  - NEW: `val x = buf.nn(pos).asInstanceOf[A]`
+  - Code flow: L24 calls `init()` which initializes buf if null
+  - After init(), buf is guaranteed non-null
+  - `.nn` is safe here - buf cannot be null at this point
+
+- **L39→42: DropRightIterator buf field** - Same pattern as L5→8 ✅
+  - `@annotation.stableNull` + `| Null` type
+  - Checked on L44: `if(buf eq null)`
+  - Correct for same reasons as TakeRightIterator
+
+- **L51→53: buf.nn access in DropRightIterator.next (read)** ✅
+  - OLD: `val x = buf(pos).asInstanceOf[A]`
+  - NEW: `val x = buf.nn(pos).asInstanceOf[A]`
+  - L48 checks hasNext which calls init()
+  - After hasNext, buf is initialized
+  - `.nn` is safe here
+
+- **L57→59: buf.nn access in DropRightIterator.next (write)** ✅
+  - OLD: `buf(pos) = underlying.next().asInstanceOf[AnyRef]`
+  - NEW: `buf.nn(pos) = underlying.next().asInstanceOf[AnyRef]`
+  - Inside next() after hasNext check
+  - buf already initialized by this point
+  - `.nn` is safe here
+
+**Summary**:
+- **2 fields**: Proper use of `@stableNull` + `| Null` for lazy-initialized buffers
+- **1 GC cleanup**: Correct use of `null.asInstanceOf` for memory management
+- **3 .nn usages**: All safe - buf guaranteed non-null after init()
+- No binary compatibility issues
+- No unsafe nullability issues
+
+Everything looks good to me.
 
 
 ---
@@ -511,13 +579,32 @@ Everything looks good to me.
 
 ### Collections - Immutable (scala.collection.immutable.*)
 
-#### [ ] library/src/scala/collection/immutable/ArraySeq.scala
+#### [x] library/src/scala/collection/immutable/ArraySeq.scala
 **Changes**: +2/-2 (4 total)
-**Status**: TODO
-**Reviewer**: _Unassigned_
+**Status**: REVIEWED
+**Reviewer**: @CC2
 **Notes**:
 
 **Review**:
+- **L5→7**: `appendedAllArraySeq[B >: A](that: ArraySeq[B]): ArraySeq[B]` → `: ArraySeq[B] | Null` ✅
+  - Documentation on L2 explicitly states: "@return null if optimisation not possible"
+  - Private method that returns null when concatenation optimization cannot be applied
+  - Follows Guideline #3 (add `| Null` when returning null)
+  - Correctly reflects method's null-returning behavior
+
+- **L16→18**: `ofRef[T <: AnyRef]` → `ofRef[T <: AnyRef | Null]` ⚠️
+  - Widens type parameter bound to allow nullable reference types
+  - Allows instantiation as `ofRef[String | Null]` for arrays that can contain null elements
+  - Follows Guideline #6 (Array[T] for reference types may have null elements)
+  - **Binary compatibility concern**: Changing public type parameter bounds may affect compatibility
+    - This is a public final class in a stable API
+    - Similar to IArray.scala issue (L33 in that review)
+    - **Recommendation**: Verify binary compatibility with MiMa before merging
+  - Semantically correct - makes explicit that array elements can be nullable
+
+**Summary**: 1 correct nullable return type, 1 correct but potentially binary-incompatible type parameter change. The type parameter widening follows guidelines but needs binary compatibility verification.
+
+**Verdict**: Changes follow migration guidelines. Binary compatibility verification needed for type parameter bound change.
 
 
 ---
