@@ -96,8 +96,11 @@ class Lean4Project:
     def render_result(self, result: CLIResult, filename: str) -> str:
         if result.stderr and not result.stdout:
             builder = []
-            builder.append(f"I failed to check the file due to errors in its dependencies. Errors are as follows:\n")
+            builder.append(f"Lake produces the following messages when checking the dependencies of this module:\n")
             builder.append(result.stderr)
+            builder.append("\n")
+            builder.append("These may indicate errors in the dependencies that need to be resolved before checking this file.")
+            builder.append("Or they may be informational message that can be ignored. You need to figure out which.")
             return "\n".join(builder)
 
         if result.timed_out:
@@ -124,7 +127,7 @@ class Lean4Project:
                 builder.append(self.render_message(diag))
 
             if result.stderr.strip():
-                builder.append("\nAdditionally, there were some warnings/errors from lake:\n")
+                builder.append("\nAdditionally, there were some infos/warnings/errors from lake:\n")
                 builder.append(result.stderr)
             return "\n".join(builder)
         except json.JSONDecodeError:
