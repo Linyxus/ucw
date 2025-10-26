@@ -3,9 +3,9 @@
 ## Progress Overview
 
 **Total Files**: 108
-**Reviewed**: 9
-**In Progress**: 2
-**Remaining**: 99
+**Reviewed**: 11
+**In Progress**: 0
+**Remaining**: 97
 
 Last Updated: 2025-10-01
 
@@ -1170,13 +1170,57 @@ Everything looks good to me.
 
 ---
 
-#### [ ] library/src/scala/collection/immutable/RedBlackTree.scala
+#### [x] library/src/scala/collection/immutable/RedBlackTree.scala
 **Changes**: +210/-207 (417 total)
-**Status**: TODO
-**Reviewer**: _Unassigned_
+**Status**: REVIEWED - BLOCKING ISSUES FOUND
+**Reviewer**: @CC-Deep-Review
 **Notes**: **LARGE FILE** - Complex tree operations, null node handling critical
 
 **Review**:
+
+🔴 **CRITICAL BUGS - WILL CAUSE RUNTIME CRASHES**
+
+- **L1248-1266 (`joinRight` function)**: `tl.nn` used without null check ❌
+  - Function signature: `joinRight[A, B](tl: Tree[A, B] | Null, ...)`
+  - L1248: `val tlnn = tl.nn` - **UNSAFE**, `tl` can be null when called from `join`
+  - Called from `join` line 1304 where `tl` is nullable
+  - **MUST FIX**: Add null check before using `.nn`
+
+- **L1279-1298 (`joinLeft` function)**: `tr.nn` used without null check ❌
+  - Function signature: `joinLeft[A, B](tl: Tree[A, B] | Null, k: A, v: B, tr: Tree[A, B] | Null, ...)`
+  - L1280: `val trnn = tr.nn` - **UNSAFE**, `tr` can be null
+  - **MUST FIX**: Add null check before using `.nn`
+
+- **L1330 (`splitLast` function)**: `t.left.nn` assumes left child exists ❌
+  - Code: `if(t.right eq null) (t.left.nn, t.key, t.value)`
+  - **BUG**: A tree node can be a leaf with both children null
+  - When `t.right eq null` and `t.left eq null`, this will crash
+  - **MUST FIX**: Should return `(t.left, t.key, t.value)` - type signature already accepts nullable result
+
+- **L889 (TreeIterator stackOfNexts)**: Type mismatch in array declaration ❌
+  - Declaration: `protected[this] val stackOfNexts: Array[Tree[A, B]] | Null`
+  - Initialization: `new Array[Tree[A, B]](maximumHeight)`
+  - **TYPE ERROR**: For reference types, `new Array[Tree[A, B]](n)` creates `Array[Tree[A, B] | Null]` (with null elements)
+  - **MUST FIX**: Change type to `Array[Tree[A, B] | Null] | Null`
+
+✅ **Safe patterns found:**
+- Lines 16-17, 24-25: `.nn` after explicit `null` checks in assertions
+- Lines 208, 222: `.nn` in loops with null checks
+- Lines 315-316, 321-322, 335-336, 341-342, 355-356, 361-362: `.nn` after null checks in foreach helpers
+- Lines 382-383: `.nn` usage safe due to count logic guaranteeing non-null
+- Lines 631-632, 640-641: `.nn` within `if (field ne null)` blocks
+- Lines 927-930, 943-945, 959-962: `.nn` within loop conditions checking non-null
+- Lines 1105-1107, 1115-1116: `.nn` safe due to `isRedTree`/`isBlackTree` flow typing
+- Lines 1129-1132, 1144-1147: `.nn` safe in balancing operations with flow typing
+- Lines 1185, 1195: `.nn` after `isRedTree(bc)` check
+
+**Summary**:
+- **4 Critical Bugs** that will cause crashes at runtime
+- **Most .nn usages are safe** - protected by flow typing through `isRedTree`/`isBlackTree` checks
+- **Red-black tree balancing logic** mostly correct, using flow typing effectively
+- **Iterator implementation** has type mismatch in array declaration
+
+**BLOCKING - MUST NOT MERGE** until all 4 bugs are fixed.
 
 
 ---
@@ -1586,13 +1630,94 @@ Everything looks good to me.
 
 ---
 
-#### [ ] library/src/scala/collection/mutable/RedBlackTree.scala
+#### [x] library/src/scala/collection/mutable/RedBlackTree.scala
 **Changes**: +116/-107 (223 total)
-**Status**: TODO
-**Reviewer**: _Unassigned_
+**Status**: REVIEWED - BLOCKING ISSUES FOUND
+**Reviewer**: @CC-Deep-Review
 **Notes**: **LARGE FILE** - Mutable tree, complex balancing operations
 
 **Review**:
+
+🔴 **CRITICAL BUGS - WILL CAUSE RUNTIME CRASHES**
+
+- **L271 (delete operation)**: `z.left.parent` assumes left child exists ❌
+  - Code: `else if (z.right eq null) { x = z.left; transplant(tree, z, z.left); xParent = z.left.parent }`
+  - Context: When `z.right eq null`, we transplant `z.left`
+  - **BUG**: If both `z.left` and `z.right` are null (leaf node), `z.left.parent` will crash
+  - `transplant` accepts nullable `from` parameter, so `z.left` can be null
+  - **MUST FIX**: Change to `xParent = z.parent` (parent of z, not of z.left)
+
+- **L638 & L660 (`fromOrderedKeys`/`fromOrderedEntries`)**: `right.nn.parent = n` assumes right child exists ❌
+  - Code: `val right = f(level+1, size-1-leftSize); ...; right.nn.parent = n`
+  - Context: Building tree from ordered sequence
+  - **BUG**: When `size-1-leftSize == 0`, `f()` returns `null`, so `right` is null
+  - Code checks `if(left ne null) left.parent = n` but NOT for right
+  - **MUST FIX**: Add check: `if(right ne null) right.parent = n`
+
+⚠️ **Complex but likely safe patterns:**
+
+- **L157 (insert operation)**: `y.nn.value = value` ✅
+  - After loop `while ((x ne null) && cmp != 0)`, if `cmp == 0`, then `y` was set in loop
+  - When `cmp == 0`, we found a match, so `y` is the last non-null x
+  - Likely safe, but logic is complex
+
+- **L247 (fixAfterInsert)**: `tree.root.nn.red = false` ✅
+  - Called after insertion, so tree.root should be non-null
+  - Safe after insert operation
+
+- **L169-240 (fixAfterInsert logic)**: Multiple `.nn` on `z.parent.nn.parent.nn`, `y.nn` ✅
+  - Loop condition: `while (isRed(z.parent))`
+  - `isRed` returns true only when node is non-null and red
+  - Flow typing with `@stableNull` on parent field ensures safety
+  - If z.parent is red, it can't be root, so z.parent.parent exists (root is always black)
+  - **Pattern is safe** - protected by RB tree invariants + flow typing
+
+- **L282, L290 (delete operation)**: `y.right.nn.parent = y`, `y.left.nn.parent = y` ⚠️
+  - L282: After `y.right = z.right`, assumes `z.right` was non-null
+  - L290: After `y.left = z.left`, assumes `z.left` was non-null
+  - These are in the branch where both children exist (L275: `else` after checking either child null)
+  - **Likely safe** based on branch logic, but difficult to verify without full context
+
+- **L322-420 (fixAfterDelete)**: Multiple `.nn` on `xParent`, `w` and children ⚠️
+  - Very complex red-black tree rebalancing logic
+  - Uses `@stableNull` on node fields for flow typing
+  - Loop condition and checks should guarantee non-null at `.nn` usage points
+  - **Likely safe** based on RB tree invariants, but extremely complex
+
+- **L427 (end of fixAfterDelete loop)**: `xParent = x.nn.parent` ❌
+  - Loop condition: `while ((x ne tree.root) && isBlack(x))`
+  - Since `isBlack(null) == true`, x CAN be null when loop continues
+  - Last statement unconditionally accesses `x.nn.parent`
+  - **POSSIBLE BUG**: Should check `if (x ne null) xParent = x.parent`
+
+- **L474, L496 (rotations)**: `x.right.nn`, `x.left.nn` ✅
+  - Called only when rotation is needed (child must exist)
+  - Caller's responsibility to ensure child exists
+  - Standard RB tree rotation pattern
+
+- **L485, L513 (parent access)**: `x.parent.nn` ✅
+  - Within condition checking `if (x.parent eq null) ... else`
+  - In else branch, parent is non-null
+  - Flow typing makes this safe
+
+✅ **Correct nullable annotations:**
+- L7: `Tree.root: Node[A, B] | Null` - tree can be empty
+- L15-23: Node constructor with nullable left/right/parent + `@stableNull`
+- L53-54: `isRed`/`isBlack` accept `Node | Null` - handles empty subtrees
+- L73: `getNode` returns `Node | Null` - returns null when not found
+- L84-96: `minNode`, `maxNode` return nullable - null for empty trees
+- L106-136: `minNodeAfter`, `maxNodeBefore` with nullable variables for search
+- L546: Iterator `nextNode: Node | Null` - null when iteration complete
+
+**Summary**:
+- **3 Critical Bugs** confirmed (L271, L638, L660)
+- **1 Possible Bug** (L427) in fixAfterDelete loop end
+- **Most .nn usages are safe** - protected by RB tree invariants + `@stableNull` flow typing
+- **fixAfterInsert logic is safe** - well-structured with flow typing
+- **fixAfterDelete logic is likely safe** but extremely complex
+- **Type annotations** for nullable nodes are correct throughout
+
+**BLOCKING - MUST NOT MERGE** until bugs are fixed. The L271 bug will definitely crash on leaf deletion.
 
 
 ---
