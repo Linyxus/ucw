@@ -118,13 +118,15 @@ class Lean4Project:
             for line in lines:
                 if line.strip():
                     diag = json.loads(line)
-                    diagnostics.append(diag)
+                    if diag:
+                      diagnostics.append(diag)
             if not diagnostics:
                 return "No issues found."
             builder = []
             builder.append(f"I found the following issues in {filename}:\n")
             for diag in diagnostics:
-                builder.append(self.render_message(diag))
+                if diag is not None:
+                    builder.append(self.render_message(diag))
 
             if result.stderr.strip():
                 builder.append("\nAdditionally, there were some infos/warnings/errors from lake:\n")
