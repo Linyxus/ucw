@@ -122,11 +122,33 @@ class Lean4Project:
                       diagnostics.append(diag)
             if not diagnostics:
                 return "No issues found."
+
+            # Sort diagnostics by position
+            # Diagnostics without position go to the end (lowest priority)
+            def get_sort_key(diag):
+                pos = diag.get('pos')
+                if pos is None or not isinstance(pos, dict):
+                    # No position - put at end with very large line number
+                    return (float('inf'), float('inf'))
+                line_num = pos.get('line', float('inf'))
+                col_num = pos.get('column', float('inf'))
+                return (line_num, col_num)
+
+            diagnostics.sort(key=get_sort_key)
+
+            # Limit to first 8 diagnostics
+            total_count = len(diagnostics)
+            diagnostics = diagnostics[:8]
+
             builder = []
             builder.append(f"I found the following issues in {filename}:\n")
             for diag in diagnostics:
                 if diag is not None:
                     builder.append(self.render_message(diag))
+
+            # Show count if there are more diagnostics
+            if total_count > 8:
+                builder.append(f"\n... and {total_count - 8} more diagnostic(s) not shown.")
 
             if result.stderr.strip():
                 builder.append("\nAdditionally, there were some infos/warnings/errors from lake:\n")
