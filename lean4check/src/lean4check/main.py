@@ -146,13 +146,26 @@ class Lean4Project:
             Formatted diagnostic string with context and annotations
         """
         severity = message.get('severity', 'info')
-        pos = message.get('pos', {})
-        end_pos = message.get('endPos', pos)
+        pos = message.get('pos')
+        end_pos = message.get('endPos')
         filename = message.get('fileName', '')
         data = message.get('data', '')
 
+        # Handle case where position information is not available
+        if pos is None:
+            return f"{severity.upper()}: {filename}\n{data}"
+
+        # Ensure pos is a dict
+        if not isinstance(pos, dict):
+            return f"{severity.upper()}: {filename}\n{data}"
+
         line_num = pos.get('line', 0)
         col_num = pos.get('column', 0)
+
+        # Handle end_pos being None or not a dict
+        if end_pos is None or not isinstance(end_pos, dict):
+            end_pos = pos
+
         end_line = end_pos.get('line', line_num)
         end_col = end_pos.get('column', col_num)
 
